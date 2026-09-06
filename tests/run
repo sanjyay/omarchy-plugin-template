@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Run isolated tooling tests; never invoke the desktop."""
+import sys
+sys.dont_write_bytecode = True
+from pathlib import Path
+import unittest
+
+root = Path(__file__).resolve().parent.parent
+suite = unittest.defaultTestLoader.discover(str(root / 'tests'), pattern='test_*.py')
+raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())

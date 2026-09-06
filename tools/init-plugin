@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Personalize the fixed template files without touching Git metadata."""
+import sys
+sys.dont_write_bytecode = True
+import argparse
+import datetime
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+from repo_checks import inspect_tree, validate, TOKEN
+
+ROOT = Path(__file__).resolve().parent.parent
+TARGETS = ('manifest.json', 'Main.qml', 'README.md', 'LICENSE', '.template.json')
+
+
+def value(text, label, maximum):
+    if not text.strip() or text != text.strip() or len(text) > maximum:
+        raise ValueError(f'{label}: use 1–{maximum} characters without edge whitespace')
+    if any(not c.isprintable() for c in text) or '@@' in text:
+        raise ValueError(f'{label}: control characters and template delimiters are forbidden')
+    return text
+
+
+def markdown(text):
+    return re.sub(r'([\\`*_{}\[\]()<>#!|])', r'\\\1', text)
+
+
+def initialize(root, args):
+    name = value(args.name, 'name', 80)
+    plugin_id = value(args.id, 'id', 128)
+    if not re.fullmatch(r'[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+', plugin_id):
+        raise ValueError('id: use lowercase dotted segments, e.g. sanjyay.peekbar')
+    if plugin_id.startswith('omarchy.'):
+        raise ValueError('id: omarchy.* is reserved')
+    description = value(args.description, 'description', 300)
+    author = value(args.author or plugin_id.split('.')[0], 'author', 100)
+    if (root / '.init-transaction').exists():
+        raise ValueError('unfinished initialization: inspect .init-transaction before retrying')
+    errors, files = inspect_tree(root)
+    if errors:
+        raise ValueError('\n'.join(errors))
+    state = json.loads(files['.template.json'].decode())
+    if not isinstance(state, dict):
+        raise ValueError('.template.json must be an object')
+    if state.get('initialized') is not False:
+        raise ValueError('project is already initialized; edit metadata directly')
+    errors = validate(root, files, template=True)
+    if errors:
+        raise ValueError('\n'.join(errors))
+    values = {'NAME': name, 'ID': plugin_id, 'DESCRIPTION': description,
+              'AUTHOR': author, 'YEAR': str(datetime.date.today().year)}
+    planned = {}
+    for rel in TARGETS:
+        original = files[rel].decode()
+        def replace(match):
+            key = match.group(1)
+            if key not in values:
+                raise ValueError(f'unknown placeholder: {key}')
+            text = values[key]
+            if rel in ('manifest.json', 'Main.qml'):
+                return json.dumps(text, ensure_ascii=True)[1:-1]
+            return markdown(text) if rel == 'README.md' else text
+        planned[rel] = TOKEN.sub(replace, original).encode()
+    planned['.template.json'] = b'{"schemaVersion": 1, "initialized": true}\n'
+    candidate = dict(files, **planned)
+    errors = validate(root, candidate, template=False)
+    if errors:
+        raise ValueError('\n'.join(errors))
+    # Fixed target set, same-filesystem staging, originals retained until success.
+    # This is rollback for ordinary failures, not a multi-file atomic transaction.
+    journal = root / '.init-transaction'
+    journal.mkdir(mode=0o700)
+    changed = []
+    try:
+        for rel in TARGETS:
+            backup = journal / (rel + '.original')
+            backup.write_bytes(files[rel])
+            backup.chmod((root / rel).stat().st_mode & 0o777)
+            staged = journal / (rel + '.new')
+            staged.write_bytes(planned[rel])
+            staged.chmod((root / rel).stat().st_mode & 0o777)
+        for rel in TARGETS:
+            if (root / rel).is_symlink() or (root / rel).read_bytes() != files[rel]:
+                raise ValueError(f'{rel} changed during initialization')
+            os.replace(journal / (rel + '.new'), root / rel)
+            changed.append(rel)
+    except BaseException:
+        for rel in reversed(changed):
+            os.replace(journal / (rel + '.original'), root / rel)
+        shutil.rmtree(journal)
+        raise
+    shutil.rmtree(journal)
+    print('Initialized ' + plugin_id)
+    for rel in TARGETS:
+        print('  updated ' + rel)
+    print('Next: implement Main.qml, then run ./tools/check')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--name', required=True, help='display name (up to 80 characters)')
+    parser.add_argument('--id', required=True, help='permanent namespaced ID, e.g. sanjyay.peekbar')
+    parser.add_argument('--description', required=True, help='plain-text summary (up to 300 characters)')
+    parser.add_argument('--author', help='credit and license holder; defaults to first ID segment')
+    args = parser.parse_args()
+    try:
+        initialize(ROOT, args)
+    except (OSError, ValueError, KeyError) as exc:
+        print(f'init-plugin: {exc}', file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

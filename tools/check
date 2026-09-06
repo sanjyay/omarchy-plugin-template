@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Check packaging, metadata and source; optionally require desktop validators."""
+import sys
+sys.dont_write_bytecode = True
+import argparse
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+from repo_checks import inspect_tree, validate
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'scripts'))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--template', action='store_true', help='validate uninitialized template')
+    parser.add_argument('--portable', action='store_true', help='skip Omarchy and qmllint, as in hosted CI')
+    parser.add_argument('--require-desktop', action='store_true', help='fail if Omarchy or qmllint is missing')
+    parser.add_argument('--shell-imports', type=Path, default=Path('/usr/share/omarchy/shell'))
+    args = parser.parse_args()
+    if args.portable and args.require_desktop:
+        parser.error('--portable conflicts with --require-desktop')
+    errors, files = inspect_tree(ROOT)
+    errors += validate(ROOT, files, template=args.template)
+    shell_files = []
+    qml_files = []
+    for rel, data in files.items():
+        text = data.decode('utf-8', errors='replace')
+        if rel.endswith('.qml'):
+            qml_files.append(rel)
+        if rel.endswith('.sh') or re.match(r'#!.*\b(?:bash|sh)\b', text):
+            shell_files.append(rel)
+            for pattern in (r'\beval\s', r'\b(?:bash|sh)\s+-c\b',
+                            r'\b(?:curl|wget)\b[^\n]*\|\s*(?:bash|sh)\b',
+                            r'\b(?:killall|pkill)\b'):
+                if re.search(pattern, text):
+                    errors.append(f'{rel}: dangerous shell pattern {pattern}; use argv/scoped cleanup')
+    if errors:
+        for error in errors:
+            print('FAIL ' + error, file=sys.stderr)
+        return 1
+    # Optional helper can be removed by plugins with no subprocess needs.
+    # Tool execution then uses subprocess.run with a deadline and inherited streams.
+    def command(argv):
+        print('RUN ' + ' '.join(argv), flush=True)
+        try:
+            try:
+                from bounded_process import run
+            except ImportError:
+                return subprocess.run(argv, cwd=ROOT, timeout=60).returncode == 0
+            result = run(argv, cwd=ROOT, timeout=60, stdout_limit=1024*1024, stderr_limit=1024*1024)
+            for stream, destination in [(result.stdout, sys.stdout), (result.stderr, sys.stderr)]:
+                if stream:
+                    destination.write(stream.decode('utf-8', errors='replace'))
+            if result.reason != 'exited':
+                print('FAIL external check: ' + result.reason, file=sys.stderr)
+            return result.reason == 'exited' and result.returncode == 0
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f'FAIL external check: {exc}', file=sys.stderr)
+            return False
+    ok = True
+    for rel in shell_files:
+        ok = command(['bash', '-n', rel]) and ok
+    if shell_files:
+        if shutil.which('shellcheck'):
+            ok = command(['shellcheck', *shell_files]) and ok
+        else:
+            print('SKIP shellcheck: not installed (bash syntax checks still run)')
+    if args.portable:
+        print('SKIP desktop checks: portable mode')
+    else:
+        checks = [('omarchy-plugin-validate', ['omarchy-plugin-validate', str(ROOT)], True),
+                  ('qmllint', ['qmllint', '-I', str(args.shell_imports), *qml_files],
+                   args.shell_imports.is_dir())]
+        for name, argv, ready in checks:
+            if args.template and name == 'omarchy-plugin-validate':
+                print('SKIP host manifest check: placeholder ID; initialized copies tested separately')
+            elif not shutil.which(name) or not ready:
+                print(('FAIL' if args.require_desktop else 'SKIP') + f' {name}: tool/imports unavailable')
+                ok = ok and not args.require_desktop
+            elif name != 'qmllint' or qml_files:
+                ok = command(argv) and ok
+    if ok:
+        print('PASS repository checks (tests: ./tests/run)')
+    return 0 if ok else 1
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError) as exc:
+        print(f'check: {exc}', file=sys.stderr)
+        raise SystemExit(1)
