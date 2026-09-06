@@ -86,6 +86,15 @@ fixed list, and never traverses .git. Initialization stages replacements and
 keeps originals in .init-transaction. Ordinary errors roll back; power loss or
 SIGKILL may leave a partial transaction. Stop concurrent edits while running it.
 If interrupted, inspect .init-transaction and restore each .original to its matching
-root filename before removing that directory and retrying. Do not delete the
+repository-relative path (including `template/README.plugin.md`) before removing that directory and retrying. Do not delete the
 journal before deciding whether recovery is needed. No automatic force/reinit
 mode can erase subsequent implementation work.
+
+The public root README documents the template repository. `tools/repo_checks.py`
+owns the fixed placeholder-location contract: the plugin README source is
+`template/README.plugin.md`, with double-brace placeholders; existing manifest,
+QML and license placeholders retain their at-sign syntax. `.template.json` records
+initialization state only. The initializer renders the source into the root README
+and removes the source in the same rollback transaction. Candidate validation
+checks the resulting file set before any writes. An empty `template/` directory
+may remain locally; unrelated files in that directory are preserved.

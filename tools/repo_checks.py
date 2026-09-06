@@ -7,12 +7,14 @@ import re
 import stat
 
 TOKEN = re.compile(r'@@([A-Z][A-Z0-9_]*)@@')
+README_TOKEN = re.compile(r'\{\{([A-Z][A-Z0-9_]*)\}\}')
+README_SOURCE = 'template/README.plugin.md'
 REQUIRED = ('manifest.json', 'README.md', 'LICENSE', 'AGENTS.md', 'ARCHITECTURE.md',
             'tools/check', 'tools/init-plugin', 'tools/repo_checks.py', '.template.json')
 PLACEHOLDERS = {
     'manifest.json': {'ID', 'NAME', 'AUTHOR', 'DESCRIPTION'},
     'Main.qml': {'ID', 'NAME'},
-    'README.md': {'ID', 'NAME', 'DESCRIPTION', 'AUTHOR'},
+    README_SOURCE: {'ID', 'NAME', 'DESCRIPTION', 'AUTHOR'},
     'LICENSE': {'YEAR', 'AUTHOR'},
 }
 KIND_KEYS = {'bar-widget': 'barWidget', 'bar': 'bar', 'overlay': 'overlay',
@@ -75,6 +77,12 @@ def validate(root, files, *, template):
     for rel in REQUIRED:
         if rel not in files:
             errors.append(f'missing required file: {rel}')
+    if template and README_SOURCE not in files:
+        errors.append(f'missing required file: {README_SOURCE}')
+    if not template and README_SOURCE in files:
+        errors.append(f'{README_SOURCE}: template source must be removed after initialization')
+    if not files.get('README.md', b'').strip():
+        errors.append('README.md: must be nonempty')
     try:
         state = json_object(files.get('.template.json', b'{}'))
         if (type(state) is not dict or type(state.get('schemaVersion')) is not int or state.get('schemaVersion') != 1
@@ -142,7 +150,7 @@ def validate(root, files, *, template):
             if p.suffix in TEXT_SUFFIXES:
                 errors.append(f'{rel}: expected UTF-8')
             continue
-        tokens = set(TOKEN.findall(text))
+        tokens = set(TOKEN.findall(text)) | set(README_TOKEN.findall(text))
         # Only these exact infrastructure files contain intentional literals.
         literal_sources = {'tools/repo_checks.py', 'tools/init-plugin', 'tests/test_tools.py'}
         if rel in literal_sources:
@@ -152,7 +160,12 @@ def validate(root, files, *, template):
             expected = PLACEHOLDERS.get(rel, set()) if template else set()
             if tokens != expected:
                 errors.append(f'{rel}: unexpected or missing template placeholders {sorted(tokens ^ expected)}')
-            if '@@' in TOKEN.sub('', text):
+            pattern = README_TOKEN if rel == README_SOURCE else TOKEN
+            other_pattern = TOKEN if rel == README_SOURCE else README_TOKEN
+            if template and (set(pattern.findall(text)) != expected or other_pattern.search(text)):
+                errors.append(f'{rel}: incorrect placeholder syntax')
+            remainder = README_TOKEN.sub('', TOKEN.sub('', text))
+            if '@@' in remainder or re.search(r'\{\{[A-Z_]', remainder):
                 errors.append(f'{rel}: malformed template delimiter')
         if re.search(r'^(?:<{7}|={7}|>{7})(?: |$)', text, re.M):
             errors.append(f'{rel}: possible merge-conflict marker')

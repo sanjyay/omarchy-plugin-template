@@ -96,11 +96,22 @@ For available options:
 ./tools/init-plugin --help
 ```
 
-Initialization updates the template metadata and placeholders so you don't have to manually search through the repository.
+Initialization validates all arguments and the template before writing. It renders
+`template/README.plugin.md` into the root `README.md`, replacing this repository
+guide with your plugin name, ID, description and author. Use `--author` to set
+the credit; it defaults to the first ID segment. The README source is removed
+from the initialized plugin. Repeated initialization is rejected. Ordinary write
+failures restore the original files; see `ARCHITECTURE.md` for interrupted recovery.
 
 ---
 
 ## Validation
+
+For this uninitialized template repository, run `./tools/check --template --portable`
+and `./tests/run`. CI validates the raw repository in template mode. The separate
+plugin README source carries the required placeholders; this public README does not.
+
+For an initialized plugin:
 
 Run:
 

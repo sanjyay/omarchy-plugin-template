@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'tools'))
-from repo_checks import inspect_tree, validate, TOKEN
+from repo_checks import inspect_tree, validate, TOKEN, README_TOKEN, README_SOURCE
 
 
 class ToolTests(unittest.TestCase):
@@ -40,7 +40,9 @@ class ToolTests(unittest.TestCase):
                     'entryPoints': {'barWidget': 'Main.qml'}}
         (self.repo / 'manifest.json').write_text(json.dumps(manifest))
         (self.repo / 'Main.qml').write_text('import QtQuick\nItem { property string name: "@@NAME@@"; property string moduleName: "@@ID@@" }\n')
-        (self.repo / 'README.md').write_text('# @@NAME@@\n@@DESCRIPTION@@\n@@ID@@\n@@AUTHOR@@\n')
+        (self.repo / 'README.md').write_text('# Template repository\n')
+        (self.repo / 'template').mkdir(exist_ok=True)
+        (self.repo / README_SOURCE).write_text('# {{NAME}}\n{{DESCRIPTION}}\n{{ID}}\n{{AUTHOR}}\n')
         (self.repo / 'LICENSE').write_text('@@YEAR@@ @@AUTHOR@@\n')
         (self.repo / '.template.json').write_text('{"schemaVersion":1,"initialized":false}\n')
 
@@ -80,8 +82,57 @@ class ToolTests(unittest.TestCase):
         for rel, data in files.items():
             if not rel.startswith(('tools/', 'tests/')):
                 self.assertFalse(TOKEN.search(data.decode(errors='replace')), rel)
+                self.assertFalse(README_TOKEN.search(data.decode(errors='replace')), rel)
         result = self.invoke('check', '--portable')
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_readme_generation(self):
+        public = (self.repo / 'README.md').read_text()
+        self.assertFalse(TOKEN.search(public))
+        self.assertFalse(README_TOKEN.search(public))
+        source = (self.repo / README_SOURCE).read_text()
+        self.assertEqual(set(README_TOKEN.findall(source)),
+                         {'NAME', 'ID', 'DESCRIPTION', 'AUTHOR'})
+        for author in (None, 'Workspace Team'):
+            with self.subTest(author=author):
+                before = self.snapshot()
+                options = {} if author is None else {'author': author}
+                result = self.init(name='Workspace Peek', id='sanjyay.workspace-peek',
+                                   description='Quickly preview workspaces in Omarchy', **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                readme = (self.repo / 'README.md').read_text()
+                for text in ('Workspace Peek', 'sanjyay.workspace-peek',
+                             'Quickly preview workspaces in Omarchy', author or 'sanjyay'):
+                    self.assertIn(text, readme)
+                self.assertNotIn('Omarchy Plugin Template', readme)
+                self.assertFalse((self.repo / README_SOURCE).exists())
+                for rel, (data, mode) in before.items():
+                    path = self.repo / rel
+                    path.write_bytes(data)
+                    path.chmod(mode)
+
+    def test_readme_source_contract(self):
+        path = self.repo / README_SOURCE
+        original = path.read_text()
+        for content in (None, original.replace('{{AUTHOR}}', ''),
+                        original + '{{FORGOTTEN}}', original.replace('{{NAME}}', '@@NAME@@')):
+            with self.subTest(content=content):
+                if content is None:
+                    path.unlink()
+                else:
+                    path.write_text(content)
+                before = self.snapshot()
+                self.assertNotEqual(self.invoke('check', '--template', '--portable').returncode, 0)
+                self.assertNotEqual(self.init().returncode, 0)
+                self.assertEqual(before, self.snapshot())
+        path.write_text(original)
+        self.assertEqual(self.init().returncode, 0)
+        path.write_text('Rendered source must not ship')
+        self.assertNotEqual(self.invoke('check', '--portable').returncode, 0)
+        path.unlink()
+        for content in ('{{NAME}}', '@@NAME@@', ''):
+            (self.repo / 'README.md').write_text(content)
+            self.assertNotEqual(self.invoke('check', '--portable').returncode, 0)
 
     def test_repeat_refused_unchanged(self):
         self.assertEqual(self.init().returncode, 0)
@@ -94,7 +145,7 @@ class ToolTests(unittest.TestCase):
         cases = [('id', 'peekbar'), ('id', 'omarchy.foo'), ('id', '../oops'),
                  ('id', 'a..b'), ('id', 'a.b/c'), ('id', 'a.B'), ('name', ''),
                  ('name', ' white'), ('name', 'bad\nvalue'), ('name', 'x' * 81),
-                 ('description', '@@NAME@@'), ('author', '\x1b[31m')]
+                 ('description', '@@NAME@@'), ('description', '{{NAME}}'), ('author', ''), ('author', '\x1b[31m')]
         for key, value in cases:
             with self.subTest(key=key, value=value):
                 self.assertNotEqual(self.init(**{key: value}).returncode, 0)

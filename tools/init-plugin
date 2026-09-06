@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
-from repo_checks import inspect_tree, validate, TOKEN
+from repo_checks import inspect_tree, validate, TOKEN, README_TOKEN, README_SOURCE
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGETS = ('manifest.json', 'Main.qml', 'README.md', 'LICENSE', '.template.json')
@@ -18,7 +18,7 @@ TARGETS = ('manifest.json', 'Main.qml', 'README.md', 'LICENSE', '.template.json'
 def value(text, label, maximum):
     if not text.strip() or text != text.strip() or len(text) > maximum:
         raise ValueError(f'{label}: use 1–{maximum} characters without edge whitespace')
-    if any(not c.isprintable() for c in text) or '@@' in text:
+    if any(not c.isprintable() for c in text) or any(delimiter in text for delimiter in ('@@', '{{', '}}')):
         raise ValueError(f'{label}: control characters and template delimiters are forbidden')
     return text
 
@@ -35,7 +35,7 @@ def initialize(root, args):
     if plugin_id.startswith('omarchy.'):
         raise ValueError('id: omarchy.* is reserved')
     description = value(args.description, 'description', 300)
-    author = value(args.author or plugin_id.split('.')[0], 'author', 100)
+    author = value(args.author if args.author is not None else plugin_id.split('.')[0], 'author', 100)
     if (root / '.init-transaction').exists():
         raise ValueError('unfinished initialization: inspect .init-transaction before retrying')
     errors, files = inspect_tree(root)
@@ -53,7 +53,7 @@ def initialize(root, args):
               'AUTHOR': author, 'YEAR': str(datetime.date.today().year)}
     planned = {}
     for rel in TARGETS:
-        original = files[rel].decode()
+        original = files[README_SOURCE if rel == 'README.md' else rel].decode()
         def replace(match):
             key = match.group(1)
             if key not in values:
@@ -62,9 +62,11 @@ def initialize(root, args):
             if rel in ('manifest.json', 'Main.qml'):
                 return json.dumps(text, ensure_ascii=True)[1:-1]
             return markdown(text) if rel == 'README.md' else text
-        planned[rel] = TOKEN.sub(replace, original).encode()
+        pattern = README_TOKEN if rel == 'README.md' else TOKEN
+        planned[rel] = pattern.sub(replace, original).encode()
     planned['.template.json'] = b'{"schemaVersion": 1, "initialized": true}\n'
     candidate = dict(files, **planned)
+    del candidate[README_SOURCE]
     errors = validate(root, candidate, template=False)
     if errors:
         raise ValueError('\n'.join(errors))
@@ -74,17 +76,23 @@ def initialize(root, args):
     journal.mkdir(mode=0o700)
     changed = []
     try:
-        for rel in TARGETS:
+        for rel in (*TARGETS, README_SOURCE):
             backup = journal / (rel + '.original')
+            backup.parent.mkdir(parents=True, exist_ok=True)
             backup.write_bytes(files[rel])
             backup.chmod((root / rel).stat().st_mode & 0o777)
+            if rel == README_SOURCE:
+                continue
             staged = journal / (rel + '.new')
             staged.write_bytes(planned[rel])
             staged.chmod((root / rel).stat().st_mode & 0o777)
-        for rel in TARGETS:
+        for rel in (README_SOURCE, *TARGETS):
             if (root / rel).is_symlink() or (root / rel).read_bytes() != files[rel]:
                 raise ValueError(f'{rel} changed during initialization')
-            os.replace(journal / (rel + '.new'), root / rel)
+            if rel == README_SOURCE:
+                os.replace(root / rel, journal / (rel + '.removed'))
+            else:
+                os.replace(journal / (rel + '.new'), root / rel)
             changed.append(rel)
     except BaseException:
         for rel in reversed(changed):
@@ -95,6 +103,7 @@ def initialize(root, args):
     print('Initialized ' + plugin_id)
     for rel in TARGETS:
         print('  updated ' + rel)
+    print('  removed ' + README_SOURCE)
     print('Next: implement Main.qml, then run ./tools/check')
 
 
