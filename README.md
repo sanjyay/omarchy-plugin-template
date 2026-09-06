@@ -1,114 +1,206 @@
-# @@NAME@@
+# Omarchy Plugin Template
 
-@@DESCRIPTION@@
+A reusable starter for building clean, maintainable **Omarchy shell plugins**.
 
-Author: @@AUTHOR@@. Plugin ID: `@@ID@@`.
+Instead of recreating the same repository structure, agent instructions, validation tooling, and boilerplate for every plugin, create a new repository from this template and start building.
 
-This repository starts as a minimal Omarchy Quattro bar widget. Before adding
-features it displays a plain-text label and follows the host's typography. It
-runs inside Omarchy's existing Quickshell process. Requires the Quattro
-`qs.Ui.BarWidget` contract; see [compatibility evidence](docs/study.md).
+> This is a community project and is not affiliated with or endorsed by Omarchy.
 
-## Create your plugin
+---
 
-1. Use GitHub's **Use this template** on `sanjyay/omarchy-plugin-template`.
-2. Clone your new repository and run:
+## Quick Start
 
-   ```bash
-   ./tools/init-plugin --name "PeekBar" --id "sanjyay.peekbar" \
-     --description "Reveal the Omarchy bar in fullscreen applications" \
-     --author "sanjyay"
-   ```
-
-3. Implement Main.qml, then run `./tools/check` and `./tests/run`.
-4. Review the diff, commit and push to your new repository.
-
-Python 3.10+ is required for development tooling. The starter widget itself
-requires no Python. Use `./tools/init-plugin --help` for limits. Author defaults
-to the first ID segment; provide it explicitly for reverse-domain IDs.
-Initialization updates manifest metadata, QML ID/default label, this README,
-license credit/year and .template.json. It does not rename the directory or
-change Git remotes. Special characters are escaped for JSON/QML and Markdown.
-Repeated initialization is refused. See [recovery](ARCHITECTURE.md) if interrupted.
-
-The untouched template is intentionally not installable with its placeholder ID.
-Run `./tools/check --template` to validate it before personalization. Initialized
-projects use `./tools/check`. CI selects the mode from .template.json and tests
-personalization using disposable copies.
-
-## Implement and configure
-
-Main.qml is a passive starting point, not a completed implementation of the
-feature named in your description. Replace its label UI with your behavior.
-The optional inline widget setting `label` accepts a nonempty string, capped at
-80 characters; invalid values fall back to the plugin name. Place it in this
-widget's layout entry in `~/.config/omarchy/shell.json`, for example:
-
-```json
-{"id": "@@ID@@", "label": "Hello"}
-```
-
-The host owns settings and placement. No user configuration is written by this
-widget. On a vertical bar the label is elided to the bar's width. Add an icon or
-an orientation-specific layout when your feature needs more space.
-
-## Install, update and remove
-
-After pushing your initialized project, install using its actual repository URL:
+Create a new repository from this template:
 
 ```bash
-omarchy plugin add "$(git remote get-url origin)" --enable
+gh repo create YOUR_USERNAME/my-plugin \
+  --template sanjyay/omarchy-plugin-template \
+  --public \
+  --clone
+
+cd my-plugin
 ```
 
-Run that from your project's checkout. Check the remote is your new repository
-before installation. Installation uses the remote commit, not uncommitted local
-changes. Omarchy installs a copy; changes in a separate development checkout do
-not automatically reach that copy. For live iteration edit the user-owned
-installed checkout or push and update it. Do not symlink the plugin tree.
+Initialize it:
 
 ```bash
-omarchy plugin update @@ID@@
-omarchy plugin remove @@ID@@
+./tools/init-plugin \
+  --name "My Plugin" \
+  --id "YOUR_USERNAME.my-plugin" \
+  --description "What the plugin does"
 ```
 
-The starter owns no files outside its checkout, so there is no custom install,
-uninstall or data migration step. Document dependencies and lifecycle changes
-when introducing them. Preserve user data by default on removal.
-
-## Validate and publish
+Then validate the project:
 
 ```bash
 ./tools/check
-./tests/run
-./tools/check --require-desktop
 ```
 
-`tools/check` checks required files, strict JSON, metadata/kind mappings, safe
-entry paths, executable scripts, Python syntax, template tokens, local Markdown
-links, literal QML assets/imports, symlinks and package hygiene. It runs Bash
-syntax and ShellCheck when shell scripts exist and the tools are available.
-It runs installed Omarchy validation and qmllint with the shell import root;
-missing optional validators are reported as SKIP. `--require-desktop` makes
-missing desktop validators a failure; `--shell-imports PATH` selects another
-host tree. `--portable` skips desktop validators explicitly, as hosted CI does.
-Tests are separate so the checker is safe to run inside test fixtures.
+That's it. Start building your plugin.
 
-These are static checks, not a security proof or a live-render test. Shell
-pattern checks are conservative heuristics; dynamic paths/links and QML API
-compatibility still need review. Test actual placement, theme changes, small
-screens, all bar edges, mixed scales, monitor unplug/DPMS and reload on a desktop
-before release. Review idle resource usage and cleanup for added features.
+---
 
-Keep manifest version and release documentation in agreement. Add a real optional
-preview.png at repository root once there is an actual UI to show. Never ship a
-fake screenshot. Publishing needs a public GitHub repository, manifest, README,
-license and safe removal; check the [marketplace publishing guide](https://omarchyplugins.com/publish.html)
-again before submission. The template does not publish or claim verification.
+## Example
 
-See [agent instructions](AGENTS.md), [architecture](ARCHITECTURE.md),
-[study and decisions](docs/study.md) and [optional process helper](scripts/README.md).
+```bash
+gh repo create sanjyay/workspace-peek \
+  --template sanjyay/omarchy-plugin-template \
+  --public \
+  --clone
+
+cd workspace-peek
+
+./tools/init-plugin \
+  --name "Workspace Peek" \
+  --id "sanjyay.workspace-peek" \
+  --description "Quickly preview workspaces in Omarchy"
+
+./tools/check
+```
+
+The template is now an independent Git repository for your new plugin.
+
+---
+
+## What's Included
+
+| Path                 | Purpose                                             |
+| -------------------- | --------------------------------------------------- |
+| `manifest.json`      | Omarchy plugin metadata and entry points            |
+| `Main.qml`           | Minimal plugin entry point                          |
+| `AGENTS.md`          | Engineering rules for Codex and other coding agents |
+| `ARCHITECTURE.md`    | Architecture and ownership guidelines               |
+| `tools/init-plugin`  | Personalizes the template for a new plugin          |
+| `tools/check`        | Runs repository validation                          |
+| `tests/`             | Tests for template tooling and reusable code        |
+| `.github/workflows/` | Automated repository checks                         |
+
+The template deliberately keeps the starting architecture small. Add services, components, scripts, or additional entry points only when the plugin actually needs them.
+
+---
+
+## `tools/init-plugin`
+
+`init-plugin` turns the generic template into your plugin.
+
+```bash
+./tools/init-plugin \
+  --name "Plugin Name" \
+  --id "username.plugin-id" \
+  --description "Plugin description"
+```
+
+For available options:
+
+```bash
+./tools/init-plugin --help
+```
+
+Initialization updates the template metadata and placeholders so you don't have to manually search through the repository.
+
+---
+
+## Validation
+
+Run:
+
+```bash
+./tools/check
+```
+
+before committing or publishing changes.
+
+You can also validate the finished plugin with Omarchy:
+
+```bash
+omarchy plugin validate .
+```
+
+---
+
+## Using Codex
+
+The repository includes an `AGENTS.md` designed for coding agents.
+
+That means you can create a plugin, enter the repository, and start Codex:
+
+```bash
+codex
+```
+
+Codex automatically gets the project's engineering rules covering areas such as subprocess safety, filesystem handling, lifecycle cleanup, QML practices, testing, and scope discipline.
+
+`ARCHITECTURE.md` contains the deeper architectural guidance. Keep implementation-specific documentation there rather than bloating this README.
+
+---
+
+## Repository Structure
+
+```text
+my-plugin/
+├── .github/
+│   └── workflows/
+├── tests/
+├── tools/
+│   ├── check
+│   └── init-plugin
+├── AGENTS.md
+├── ARCHITECTURE.md
+├── LICENSE
+├── Main.qml
+├── README.md
+└── manifest.json
+```
+
+The exact structure may grow with the plugin. Empty abstractions and unnecessary directories are intentionally avoided.
+
+---
+
+## Design Principles
+
+* Start small and introduce abstractions only when they solve a real problem.
+* Prefer event-driven integrations over unnecessary polling.
+* Treat subprocesses, paths, filesystem input, and external output defensively.
+* Keep plugin-specific logic out of generic infrastructure.
+* Clean up resources when plugin components unload.
+* Test reusable or failure-prone behavior.
+* Keep `Main.qml` focused instead of turning it into the entire application.
+* Run validation before shipping.
+
+See [`AGENTS.md`](./AGENTS.md) for the full engineering rules and [`ARCHITECTURE.md`](./ARCHITECTURE.md) for architecture guidance.
+
+---
+
+## Faster Personal Workflow
+
+If you create Omarchy plugins frequently, wrap the GitHub template workflow in a shell command.
+
+For example:
+
+```bash
+new-omarchy-plugin workspace-peek
+```
+
+can create the GitHub repository, clone it into the current directory, run `tools/init-plugin`, and execute the initial checks automatically.
+
+This reduces creating a new plugin to:
+
+```text
+idea → new repository → initialized template → build
+```
+
+---
+
+## Updating the Template
+
+Improvements discovered while building or reviewing real plugins should be brought back into this repository when they are generally applicable.
+
+Examples include better validation, safer reusable patterns, improved agent instructions, CI checks, or fixes for recurring Omarchy integration problems.
+
+Plugin-specific features should remain in their own repositories.
+
+---
 
 ## License
 
-[MIT](LICENSE). Retain template copyright; initialization adds your credit.
-Review license compatibility and provenance before incorporating upstream code.
+MIT
